@@ -1,0 +1,197 @@
+# index creation query
+PUT test_index_1
+{
+  "settings": {
+    "default_pipeline": "ingestion_pipeline_ph2"
+  },
+  "mappings": {
+    "properties": {
+      "metadata": {
+        "properties": {
+          "page": {
+            "type": "long"
+          }
+        }
+      },
+      "text": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "vector_field": {
+        "type": "knn_vector",
+        "dimension": 768,
+        "method": {
+          "engine": "lucene",
+          "space_type": "l2",
+          "name": "hnsw",
+          "parameters": {
+            "ef_construction": 512,
+            "m": 16
+          }
+        }
+      }
+    }
+  }
+}
+
+
+
+#ingestion pipeline
+
+pipeline='ph2_search_pipeline'
+rerank_pipeline='ph2_search_rerank_pipeline'
+user_search_query="how to focus for long time"
+#"what are the steps of ashtanga yoga"
+client = OpenSearch(
+        hosts = [{"host": "vpc-ks-opensearch-dev-es-gudxvizp6v6ehrbesax2uzr7gq.us-west-2.es.amazonaws.com", "port": 443}],
+        http_auth = ("ks-stg-admin", "K3!0dg_7Hc"),
+        use_ssl = True,
+        verify_certs = False,
+        ssl_assert_hostname = False,
+        ssl_show_warn = False,
+        timeout=60
+    )
+# query 
+query1={
+    "size": 50,
+    "_source": {
+        "includes": ["text"]
+    },
+    "query": {
+        "hybrid": {
+            "queries": [
+                {
+                    "bool": {
+                        "should": [
+                            {
+                                "multi_match": {
+                                    "query": user_search_query,
+                                    "minimum_should_match": "66%",
+                                    "type": "most_fields",
+                                    "fuzziness": "auto",
+                                    "fields": ["text^7"],
+                                    "boost": 7
+                                }
+                            },
+                            {
+                                "multi_match": {
+                                    "query": user_search_query,
+                                    "minimum_should_match": "66%",
+                                    "type": "most_fields",
+                                    "fields": ["text^3"],
+                                    "boost": 5
+                                }
+                            },
+                            {
+                                "multi_match": {
+                                    "query": user_search_query,
+                                    "type": "phrase",
+                                    "fields": ["text^2"],
+                                    "boost": 4
+                                }
+                            },
+                            {
+                                "multi_match": {
+                                    "query": user_search_query,
+                                    "type": "bool_prefix",
+                                    "fields": ["text"],
+                                    "boost": 3
+                                }
+                            }
+                        ]
+                    }
+                },
+                {
+                    "neural": {
+                        "vector_field": {
+                            "query_text": user_search_query,
+                            "model_id": "dzgKAJMB7CBjJw4I6ebM",
+                            "k": 100
+                        }
+                    }
+                }
+            ]
+        }
+    },
+    "ext": {
+        "rerank": {
+            "query_context": {
+                "query_text": user_search_query
+            }
+        }
+    }
+}
+response = client.search(index=['test_index_1'],params={'search_pipeline':rerank_pipeline}, body=query1)
+for i in response['hits']['hits']:
+    print(i['_source'],'\n')
+
+
+#search pipeline
+
+{
+  "ph2_search_pipeline": {
+    "description": "Post processor for hybrid search",
+    "phase_results_processors": [
+      {
+        "normalization-processor": {
+          "normalization": {
+            "technique": "min_max"
+          },
+          "combination": {
+            "technique": "arithmetic_mean",
+            "parameters": {
+              "weights": [
+                0.5,
+                0.5
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+
+# rerank pipeline
+{
+  "ph2_search_rerank_pipeline": {
+    "description": "Post processor for hybrid search",
+    "phase_results_processors": [
+      {
+        "normalization-processor": {
+          "normalization": {
+            "technique": "min_max"
+          },
+          "combination": {
+            "technique": "arithmetic_mean",
+            "parameters": {
+              "weights": [
+                0.3,
+                0.7
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "response_processors": [
+      {
+        "rerank": {
+          "ml_opensearch": {
+            "model_id": "ezgMAJMB7CBjJw4IJObW"
+          },
+          "context": {
+            "document_fields": [
+              "text"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
