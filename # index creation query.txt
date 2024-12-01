@@ -195,3 +195,45 @@ for i in response['hits']['hits']:
     ]
   }
 }
+
+
+PUT _ingest/pipeline/ingestion_pipeline_ph2
+{
+  "description": "Pipeline to create embeddings using Transformer model",
+  "processors": [
+      {
+        "text_embedding": {
+          "model_id": "42eac5MBXzJCTuOP1RAK",
+          "field_map": {
+            "text": "vector_field"
+          }
+        }
+      }
+    ]
+}
+
+
+GET /_plugins/_ml/model_groups/_search
+{
+  "query": {
+    "match_all": {}
+  },
+  "size": 1000
+}
+
+POST /_plugins/_ml/model_groups/_register
+{
+  "name": "NLP_model_group",
+  "description": "A model group for NLP models"
+}
+
+"model_group_id": "jt-ZgJMBzXYPd32m5MIq"
+
+POST /_plugins/_ml/models/_register
+{
+  "name": "huggingface/sentence-transformers/all-MiniLM-L12-v2",
+  "version": "1.0.1",
+  "model_group_id": "jt-ZgJMBzXYPd32m5MIq",
+  "model_format": "TORCH_SCRIPT"
+}
+
